@@ -47,6 +47,11 @@ zmk_keymap_layers_state_t zmk_keymap_layer_state(void);
 zmk_keymap_layers_state_t zmk_keymap_layer_locks(void);
 bool zmk_keymap_layer_active(zmk_keymap_layer_id_t layer);
 bool zmk_keymap_layer_locked(zmk_keymap_layer_id_t layer);
+#if IS_ENABLED(CONFIG_ZMK_TRACK_MOMENTARY_LAYERS)
+bool zmk_keymap_layer_momentary(zmk_keymap_layer_id_t layer);
+bool zmk_keymap_layers_any_momentary(zmk_keymap_layers_state_t layers_mask);
+void zmk_keymap_layer_mark_momentary(zmk_keymap_layer_id_t layer, bool momentary);
+#endif
 zmk_keymap_layer_index_t zmk_keymap_highest_layer_active(void);
 int zmk_keymap_layer_activate(zmk_keymap_layer_id_t layer, bool locking);
 int zmk_keymap_layer_deactivate(zmk_keymap_layer_id_t layer, bool locking);

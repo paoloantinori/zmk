@@ -704,6 +704,9 @@ config ZMK_KEYMAP_SENSORS_DEFAULT_TRIGGERS_PER_ROTATION
 
 endif # ZMK_KEYMAP_SENSORS
 
+config ZMK_TRACK_MOMENTARY_LAYERS
+    bool "Track whether layer activations are momentary"
+
 module = ZMK
 module-str = zmk
 source "subsys/logging/Kconfig.template.log_config"

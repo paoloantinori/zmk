@@ -25,6 +25,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 static zmk_keymap_layers_state_t _zmk_keymap_layer_locks = 0;
 static zmk_keymap_layers_state_t _zmk_keymap_layer_state = 0;
+#if IS_ENABLED(CONFIG_ZMK_TRACK_MOMENTARY_LAYERS)
+static zmk_keymap_layers_state_t _zmk_keymap_layer_momentary = 0;
+#endif
 static zmk_keymap_layer_id_t _zmk_keymap_layer_default = 0;
 
 #define DT_DRV_COMPAT zmk_keymap
@@ -192,6 +195,20 @@ bool zmk_keymap_layer_active(zmk_keymap_layer_id_t layer) {
 bool zmk_keymap_layer_locked(zmk_keymap_layer_id_t layer) {
     return zmk_keymap_layer_active_with_state(layer, _zmk_keymap_layer_locks);
 }
+
+#if IS_ENABLED(CONFIG_ZMK_TRACK_MOMENTARY_LAYERS)
+bool zmk_keymap_layer_momentary(zmk_keymap_layer_id_t layer) {
+    return (_zmk_keymap_layer_momentary & BIT(layer)) == BIT(layer);
+}
+
+bool zmk_keymap_layers_any_momentary(zmk_keymap_layers_state_t layers_mask) {
+    return (_zmk_keymap_layer_momentary & layers_mask) != 0;
+}
+
+void zmk_keymap_layer_mark_momentary(zmk_keymap_layer_id_t layer, bool momentary) {
+    WRITE_BIT(_zmk_keymap_layer_momentary, layer, momentary);
+}
+#endif
 
 zmk_keymap_layer_index_t zmk_keymap_highest_layer_active(void) {
     for (int layer_idx = ZMK_KEYMAP_LAYERS_LEN - 1;
