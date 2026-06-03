@@ -39,23 +39,57 @@ Carries forward non-merged patches from [caksoylar's Zen branch](https://github.
 
 ### 2. Layer State Relay (central → peripheral)
 
-Relays the highest active layer index from the central half to the peripheral half via a new BLE GATT characteristic. This allows the peripheral's e-ink display to show the active layer name without any direct access to the keymap state.
+In a ZMK split keyboard, the **left half (central)** holds the keymap and tracks which layers are active. The **right half (peripheral)** only knows about keypresses — it has no idea what layer is active. This means the right half's e-ink display can only show static content, because it cannot react to layer changes happening on the left.
 
-Follows ZMK's existing [HID indicators relay](https://zmk.dev/docs/features/split-keyboards) pattern exactly.
+This patch fixes that by opening a **one-way data channel** from central to peripheral over the existing BLE connection:
 
-| Component | Change |
-|-----------|--------|
-| **UUID** | `ZMK_SPLIT_BT_UPDATE_LAYER_STATE_UUID` (0x00000007) |
-| **Transport** | `SET_LAYER_STATE` command type, `uint8_t layer` payload |
-| **Event** | `zmk_split_peripheral_layer_changed` (raised on peripheral) |
-| **Kconfig** | `CONFIG_ZMK_SPLIT_PERIPHERAL_LAYER_STATE` |
-| **Peripheral** | GATT write handler in `service.c`, raises event via deferred work |
-| **Central (BLE)** | GATT discovery + `bt_gatt_write_without_response` dispatch in `central.c` |
-| **Central (transport)** | `ZMK_LISTENER` on `zmk_layer_state_changed` in `split/central.c` |
+```
+Left half (central)                         Right half (peripheral)
+┌─────────────────────┐                     ┌─────────────────────┐
+│  User taps layer key │                     │                     │
+│         ↓            │                     │                     │
+│  zmk_layer_state_    │                     │                     │
+│  changed event fires │                     │                     │
+│         ↓            │                     │                     │
+│  Listener computes   │                     │                     │
+│  highest active      │   BLE GATT write   │  GATT write handler │
+│  layer = 3 (FUNC)  ──┼────────────────────►│  receives "3"       │
+│         ↓            │   (1 byte payload)  │         ↓           │
+│  Change detection:   │                     │  Raises event:      │
+│  only sends if       │                     │  split_peripheral_  │
+│  layer actually      │                     │  layer_changed      │
+│  changed              │                     │         ↓           │
+└─────────────────────┘                     │  E-ink display      │
+                                            │  updates to show    │
+                                            │  "FUNC"             │
+                                            └─────────────────────┘
+```
+
+**The practical result:** When you activate a layer on the left half (e.g. hold a NAV key, toggle MOUSE mode, or activate NUM via a combo), the right half's e-ink display updates to show the layer name in real time. Previously it could only show battery level and BT status — now it reflects what's actually happening on the keyboard.
+
+This also establishes a reusable pattern for future cross-half communication. Any state on the central that the peripheral needs to know about can follow the same relay architecture.
+
+#### Technical details
+
+Enabled by `CONFIG_ZMK_SPLIT_PERIPHERAL_LAYER_STATE=y`. Follows ZMK's existing [HID indicators relay](https://zmk.dev/docs/features/split-keyboards) pattern (same code structure, new UUID/data type).
+
+**How it works, step by step:**
+
+1. **Central** subscribes to `zmk_layer_state_changed` events (fires on any layer activate/deactivate)
+2. On each event, computes `zmk_keymap_highest_layer_active()` — the single highest layer index
+3. Compares against last-sent value; skips if unchanged (avoids redundant BLE writes on multi-layer transitions)
+4. Sends `SET_LAYER_STATE` command through the transport layer to all connected peripherals
+5. **Central BLE** (`central.c`) writes 1 byte to the peripheral's GATT characteristic via `bt_gatt_write_without_response()`
+6. **Peripheral BLE** (`service.c`) receives the write, raises `zmk_split_peripheral_layer_changed` event via deferred work queue
+7. Peripheral-side widgets (e.g. the Zen `layer_status` widget) subscribe to this event and update the display
 
 **Optimizations:**
 - Change detection on both sides — central only sends when highest layer actually changes, peripheral only raises event when received value differs
-- Direct byte assignment (no memcpy) for the single-byte payload
+- Direct byte assignment for the single-byte payload
+
+**Known limitations:**
+- No initial sync on reconnect — peripheral defaults to layer 0 (BASE) until the next layer change. Since users are on BASE 99% of the time, this is acceptable.
+- Layer names on the peripheral are hardcoded (the peripheral has no access to devicetree keymap labels). If layer names change in the keymap, the peripheral widget must be updated to match.
 
 **Files touched:** `app/src/split/bluetooth/service.c`, `app/src/split/bluetooth/central.c`, `app/src/split/central.c`, `app/include/zmk/split/bluetooth/uuid.h`, `app/include/zmk/split/transport/types.h`, `app/include/zmk/split/central.h`, `app/include/zmk/events/split_peripheral_layer_changed.h`, `app/src/events/split_peripheral_layer_changed.c`, `app/src/split/Kconfig`, `app/CMakeLists.txt`
 
