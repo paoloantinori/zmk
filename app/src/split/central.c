@@ -19,6 +19,11 @@
 #include <zmk/events/position_state_changed.h>
 #include <zmk/events/sensor_event.h>
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_LAYER_STATE)
+#include <zmk/keymap.h>
+#include <zmk/events/layer_state_changed.h>
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_LAYER_STATE)
+
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 const struct zmk_split_transport_central *active_transport;
@@ -149,6 +154,59 @@ int zmk_split_central_update_hid_indicator(zmk_hid_indicators_t indicators) {
 }
 
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_LAYER_STATE)
+
+int zmk_split_central_update_layer_state(uint8_t layer) {
+    if (!active_transport || !active_transport->api ||
+        !active_transport->api->get_available_source_ids || !active_transport->api->send_command) {
+        return -ENODEV;
+    }
+
+    uint8_t source_ids[ZMK_SPLIT_CENTRAL_PERIPHERAL_COUNT];
+
+    int ret = active_transport->api->get_available_source_ids(source_ids);
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    struct zmk_split_transport_central_command command =
+        (struct zmk_split_transport_central_command){
+            .type = ZMK_SPLIT_TRANSPORT_CENTRAL_CMD_TYPE_SET_LAYER_STATE,
+            .data =
+                {
+                    .set_layer_state =
+                        {
+                            .layer = layer,
+                        },
+                },
+        };
+
+    for (size_t i = 0; i < ret; i++) {
+        ret = active_transport->api->send_command(source_ids[i], command);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
+static int split_central_layer_state_listener(const zmk_event_t *eh) {
+    uint8_t highest = zmk_keymap_highest_layer_active();
+    static uint8_t last_sent_layer = 0;
+    if (highest == last_sent_layer) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+    last_sent_layer = highest;
+    return zmk_split_central_update_layer_state(highest);
+}
+
+ZMK_LISTENER(split_central_layer_state, split_central_layer_state_listener);
+ZMK_SUBSCRIPTION(split_central_layer_state, zmk_layer_state_changed);
+
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_LAYER_STATE)
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
 
